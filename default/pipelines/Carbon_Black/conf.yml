@@ -1,0 +1,196 @@
+output: default
+groups:
+  CBT2PL:
+    name: Initial_parsing
+    description: Initial Functions for all Carbon Black Cloud Events
+    index: 1
+  rhsr4d:
+    name: Example_Drop_Events
+    description: "Set of Drop function "
+    index: 2
+asyncFuncTimeout: 1000
+functions:
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >-
+        Carbon Black Cloud data
+
+        Event types ( identified by " type:endpoint.event.filemod ")
+
+        bit9_carbonblack_alert, Intrusion Detection, carbonblack_endpoint_processes, carbonblack_endpoint_filesystem,  carbonblack_endpoint_registry, edr_carbonblack_alert, edr_carbonblack_endpoint_filesystem
+
+        Source type = bit9:carbonblack:json
+  - id: serde
+    filter: "true"
+    disabled: null
+    conf:
+      mode: extract
+      type: json
+      srcField: _raw
+      fieldFilterExpr: value && value !== '0'
+    description: Extract the JSON from _raw into fields for the purposes of LogStream
+      pipeline function evaluation.
+    groupId: CBT2PL
+  - id: auto_timestamp
+    filter: "true"
+    disabled: false
+    conf:
+      srcField: backend_timestamp
+      dstField: _time
+      defaultTimezone: utc
+      timeExpression: time.getTime() / 1000
+      offset: 0
+      maxLen: 150
+      defaultTime: now
+      latestDateAllowed: +1week
+      earliestDateAllowed: -420weeks
+      timestamps:
+        - strptime: "%Y-%m-%d %H:%M:%S %z %Z"
+          regex: /backend_timestamp:([^$]+)/
+    description: Use the backend_timestamp field value to set the _time field value
+    groupId: CBT2PL
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >-
+        Generic Drop events. 
+
+        The only type=endpoint.event.filemod data that we want to preserve is when action=='ACTION_FILE_CREATE'
+    groupId: rhsr4d
+  - id: drop
+    filter: type.includes('endpoint.event.filemod') &&
+      !action.match(/ACTION_FILE_CREATE/)
+    disabled: true
+    conf: {}
+    description: The only type=endpoint.event.filemod data that we want to preserve is when
+      action=='ACTION_FILE_CREATE'
+    groupId: rhsr4d
+  - id: drop
+    filter: process_publisher[0].name=='McAfee, Inc.'
+    disabled: true
+    conf: {}
+    description: "Process publisher drops - match specific name "
+    groupId: rhsr4d
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: "Process path drop - match specific location "
+    groupId: rhsr4d
+  - id: drop
+    filter: process_path.match(/\/Library\/VMware\/Printing\/.*/i)
+    disabled: true
+    conf: {}
+    description: "Process path drop - match specific location "
+    groupId: rhsr4d
+  - id: drop
+    filter: process_path.match(/.*com.microsoft.pkg.Microsoft.*\/postinstall/i)
+    disabled: true
+    conf: {}
+    description: "Process path drop - match specific location "
+    groupId: rhsr4d
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: "Parent path drop - match specific location "
+    groupId: rhsr4d
+  - id: drop
+    filter: parent_path.match(/\/Library\/VMware\/Printing\/vmware.*.sh/i)
+    disabled: true
+    conf: {}
+    description: "Parent path drop - match specific location "
+    groupId: rhsr4d
+  - id: drop
+    filter: parent_path.match(/.*com.microsoft.pkg.Microsoft.*\/postinstall/i)
+    disabled: true
+    conf: {}
+    groupId: rhsr4d
+    description: "Parent path drop - match specific location "
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: "Process cmdline drops - match specific commands "
+    groupId: rhsr4d
+  - id: drop
+    filter: parent_cmdline.match(/.*com.vmware.pkg.Microsoft.*\/postinstall/i)
+    disabled: true
+    conf: {}
+    groupId: rhsr4d
+    description: "Process cmdline drops - match specific commands "
+  - id: drop
+    filter: process_cmdline.match(/installer -verboseR -pkg \/tmp\/\?linkid\=.*
+      -target LocalSystem/i)
+    disabled: true
+    conf: {}
+    description: "Process cmdline drops - match specific commands "
+    groupId: rhsr4d
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: Drop events with file names that we want to exclude.
+    groupId: rhsr4d
+  - id: drop
+    filter: filemod_name.endsWith('.TMP') || filemod_name.endsWith('.tmp')
+    disabled: true
+    conf: {}
+    groupId: rhsr4d
+    description: Drop events with file names that we want to exclude.
+  - id: drop
+    filter: filemod_name.toUpperCase().endsWith('.LOCK')
+    disabled: true
+    conf: {}
+    description: Drop events with file names that we want to exclude.
+    groupId: rhsr4d
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: Serialize and convert to JSON
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      add:
+        - name: source
+          value: __source
+        - name: sourcetype
+          value: "'bit9:carbonblack:json'"
+      keep:
+        - source
+    description: Set the source and sourcetype fields
+  - id: serialize
+    filter: "true"
+    disabled: false
+    conf:
+      type: json
+      dstField: _raw
+      fields:
+        - "!_*"
+        - "!cribl_breaker"
+        - "!index"
+        - "!host"
+        - "!source"
+        - "!sourcetype"
+        - "*"
+    description: Convert to JSON, and push the fields back into _raw
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      keep:
+        - index
+        - source
+        - sourcetype
+        - _time
+        - _raw
+      remove:
+        - _*
+        - "*"
+      add: []
+    description: Drop all unrequired meta fields
